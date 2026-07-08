@@ -1,0 +1,22 @@
+{
+    "description":  "Nhalabene",
+    "short_name":  "Nhalabene Ag.",
+    "background_color":  "#EEF2F7",
+    "icons":  [
+                  {
+                      "type":  "image/png",
+                      "sizes":  "192x192",
+                      "src":  "icon-192.png"
+                  },
+                  {
+                      "type":  "image/png",
+                      "sizes":  "512x512",
+                      "src":  "icon-512.png"
+                  }
+              ],
+    "theme_color":  "#EEF2F7",
+    "display":  "standalone",
+    "name":  "Nhalabene - transfer-parceiro",
+    "scope":  "./",
+    "start_url":  "./index.html"
+}

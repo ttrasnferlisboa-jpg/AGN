@@ -1,0 +1,5 @@
+App: transfer-parceiro
+Source: dev/sources/Portail_Agences_Bureau.html
+Hotel: Nhalabene
+Slug: nhalabene-lisboa
+Rebuild: build.ps1
