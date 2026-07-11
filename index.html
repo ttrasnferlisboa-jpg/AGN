@@ -763,6 +763,12 @@ html[data-theme="dark"] .header .lang-app .lp.active{
   .hdr-acts .btn span{display:none}
   .hdr-acts .btn{font-size:18px}
 }
+.bcast-offer-overlay{position:fixed;inset:0;z-index:9999;background:rgba(11,22,35,.92);display:flex;align-items:center;justify-content:center;padding:16px}
+.bcast-offer-card{max-width:420px;width:100%;background:var(--card);border-radius:16px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.45);border:2px solid var(--gold)}
+.bcast-offer-card h2{margin:0 0 8px;font-size:20px;color:var(--gold)}
+.bcast-timer{font-size:32px;font-weight:800;color:var(--gold);text-align:center;margin:12px 0}
+.bcast-offer-actions{display:flex;gap:12px;margin-top:20px}
+.bcast-offer-actions .btn{flex:1;min-height:52px;font-size:15px;font-weight:700}
 </style>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -773,7 +779,7 @@ html[data-theme="dark"] .header .lang-app .lp.active{
 
 <!-- Banner erreur configuration -->
 <div id="config-banner">
-  ⚠️ URL de l'API non configurée — Ouvrir ce fichier HTML et remplacer <code>https://VOTRE_DEPLOIEMENT_APPS_SCRIPT_ICI/exec</code> par l'URL de votre déploiement Apps Script
+  ⚠️ URL de l'API non configurée — Ouvrir ce fichier HTML et remplacer <code>https://script.google.com/macros/s/AKfycby2HTznhTGuYWheziPO3ta5QMmObQWQ6OmS_wjLUuBwn63_cE7XCo_kVqwW-qSv1-xm/exec</code> par l'URL de votre déploiement Apps Script
 </div>
 
 <!-- ══ LOGIN ══ -->
@@ -1231,15 +1237,15 @@ function isApiUrlUnconfigured(url){
   return false;
 }
 function checkApiConfig(){
-  const notConf = !API_URL || API_URL === 'https://VOTRE_DEPLOIEMENT_APPS_SCRIPT_ICI/exec';
+  const notConf = !API_URL || API_URL === 'https://script.google.com/macros/s/AKfycby2HTznhTGuYWheziPO3ta5QMmObQWQ6OmS_wjLUuBwn63_cE7XCo_kVqwW-qSv1-xm/exec';
   const banner = document.getElementById('config-banner');
   if(notConf && banner) banner.classList.add('show');
   return !notConf;
 }
 
 async function api(payload){
-  if(!API_URL || API_URL === 'https://VOTRE_DEPLOIEMENT_APPS_SCRIPT_ICI/exec'){
-    throw new Error('⚠️ URL de l\'API non configurée. Ouvrez ce fichier HTML et remplacez https://VOTRE_DEPLOIEMENT_APPS_SCRIPT_ICI/exec par l\'URL de votre déploiement Apps Script Google.');
+  if(!API_URL || API_URL === 'https://script.google.com/macros/s/AKfycby2HTznhTGuYWheziPO3ta5QMmObQWQ6OmS_wjLUuBwn63_cE7XCo_kVqwW-qSv1-xm/exec'){
+    throw new Error('⚠️ URL de l\'API non configurée. Ouvrez ce fichier HTML et remplacez https://script.google.com/macros/s/AKfycby2HTznhTGuYWheziPO3ta5QMmObQWQ6OmS_wjLUuBwn63_cE7XCo_kVqwW-qSv1-xm/exec par l\'URL de votre déploiement Apps Script Google.');
   }
   const r = await fetch(API_URL, {
     method:'POST',
@@ -1598,6 +1604,7 @@ function stopAgencyReservationPolling() {
     clearInterval(_agencyPollTimer);
     _agencyPollTimer = null;
   }
+  stopBroadcastOfferPolling();
   resetNotifTracking();
 }
 async function fetchAllReservationsUnfiltered() {
@@ -1654,6 +1661,115 @@ function startAgencyReservationPolling() {
   if (!APP.token) return;
   pollNewReservations();
   _agencyPollTimer = setInterval(pollNewReservations, NOTIF_POLL_MS);
+  startBroadcastOfferPolling();
+}
+
+const BCAST_POLL_MS = 3500;
+let _bcastPollTimer = null;
+let _bcastUiTimer = null;
+let _bcastCurrentOffer = null;
+
+function stopBroadcastOfferPolling() {
+  if (_bcastPollTimer) { clearInterval(_bcastPollTimer); _bcastPollTimer = null; }
+  if (_bcastUiTimer) { clearInterval(_bcastUiTimer); _bcastUiTimer = null; }
+  hideBcastOffer();
+}
+function startBroadcastOfferPolling() {
+  if (_bcastPollTimer) return;
+  if (!APP.token || !APP.agencyId) return;
+  pollBroadcastOffer();
+  _bcastPollTimer = setInterval(pollBroadcastOffer, BCAST_POLL_MS);
+}
+async function pollBroadcastOffer() {
+  if (!APP.token || !APP.agencyId) return;
+  try {
+    const d = await api({ action: 'getOffreBroadcastPoll', agencyId: APP.agencyId, token: APP.token });
+    if (!d.success) {
+      if (d.sessionExpired) doLogout();
+      return;
+    }
+    if (d.offer) showBcastOffer(d.offer);
+    else hideBcastOffer();
+  } catch (e) {}
+}
+function renderBcastOfferDetails(r) {
+  if (!r) return '—';
+  function e(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  return [
+    '<strong>' + e(r.clientNom || '—') + '</strong>',
+    e(fmtD(r.dateTransfer)) + ' · ' + e(r.heureTransfer || ''),
+    e(r.pointDepart || '—') + ' → ' + e(r.destination || '—'),
+    e(r.personnes || '—') + ' pax · ' + e(r.malas || '0') + ' bag'
+  ].join('<br>');
+}
+function showBcastOffer(offer) {
+  if (!offer || !offer.reservationId) return;
+  _bcastCurrentOffer = offer;
+  const ov = document.getElementById('bcast-offer-overlay');
+  if (!ov) return;
+  ov.style.display = 'flex';
+  document.getElementById('bcast-offer-ref').textContent = 'Réf. ' + offer.reservationId;
+  document.getElementById('bcast-offer-details').innerHTML = renderBcastOfferDetails(offer.reserva);
+  updateBcastTimer(offer.secLeft || 0);
+  if (_bcastUiTimer) clearInterval(_bcastUiTimer);
+  let sec = offer.secLeft || 0;
+  _bcastUiTimer = setInterval(function () {
+    sec = Math.max(0, sec - 1);
+    updateBcastTimer(sec);
+    if (sec <= 0) hideBcastOffer();
+  }, 1000);
+}
+function updateBcastTimer(sec) {
+  const el = document.getElementById('bcast-offer-timer');
+  if (el) el.textContent = sec > 0 ? (sec + ' s') : '—';
+}
+function hideBcastOffer() {
+  _bcastCurrentOffer = null;
+  if (_bcastUiTimer) { clearInterval(_bcastUiTimer); _bcastUiTimer = null; }
+  const ov = document.getElementById('bcast-offer-overlay');
+  if (ov) ov.style.display = 'none';
+}
+async function doBcastAccept() {
+  if (!_bcastCurrentOffer) return;
+  const btn = document.getElementById('btn-bcast-accept');
+  if (btn) { btn.disabled = true; btn.classList.add('loading'); }
+  try {
+    const d = await api({
+      action: 'aceitarBroadcast',
+      agencyId: APP.agencyId,
+      token: APP.token,
+      reservationId: _bcastCurrentOffer.reservationId
+    });
+    if (!d.success) {
+      toast(d.error || 'Erreur', 'err');
+      if (d.sessionExpired) doLogout();
+      hideBcastOffer();
+      return;
+    }
+    toast('✅ Réservation confirmée — ' + _bcastCurrentOffer.reservationId, 'ok');
+    hideBcastOffer();
+    loadReservas({ quiet: true });
+  } catch (e) {
+    toast('Erreur réseau', 'err');
+  } finally {
+    if (btn) { btn.disabled = false; btn.classList.remove('loading'); }
+  }
+}
+async function doBcastRefuse() {
+  if (!_bcastCurrentOffer) return;
+  const rid = _bcastCurrentOffer.reservationId;
+  const btn = document.getElementById('btn-bcast-refuse');
+  if (btn) btn.disabled = true;
+  hideBcastOffer();
+  try {
+    await api({
+      action: 'recusarBroadcast',
+      agencyId: APP.agencyId,
+      token: APP.token,
+      reservationId: rid
+    });
+  } catch (e) {}
+  if (btn) btn.disabled = false;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2393,17 +2509,31 @@ document.addEventListener('keydown', e => {
   setAgencyTheme((function(){try{return localStorage.getItem(KEY)==='dark'?'dark':'light';}catch(e){return'light';}})());
 })();
 </script>
+
+<!-- Overlay diffusion rotation (type Uber/Bolt) -->
+<div id="bcast-offer-overlay" class="bcast-offer-overlay" style="display:none" aria-live="polite">
+  <div class="bcast-offer-card">
+    <h2>🚗 Nouvelle demande de transfer</h2>
+    <p id="bcast-offer-ref" style="font-size:13px;color:var(--ts);margin:0 0 12px"></p>
+    <div id="bcast-offer-details" style="font-size:14px;line-height:1.55"></div>
+    <div class="bcast-timer" id="bcast-offer-timer">—</div>
+    <div class="bcast-offer-actions">
+      <button type="button" class="btn btn-navy" id="btn-bcast-accept" onclick="doBcastAccept()">✅ Accepter</button>
+      <button type="button" class="btn btn-ghost" id="btn-bcast-refuse" onclick="doBcastRefuse()">❌ Refuser</button>
+    </div>
+  </div>
+</div>
 <script>if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(function(){});</script>
 </body>
 </html>
 <!-- ===== HOTEL_PACK_API_DEPLOY =====
   DEPLOIEMENT API — Nhalabene
-  Fichier : PC/transfer-parceiro/index.html
+  Fichier : dev/sources/Portail_Agences_Bureau.html
   1) Deployer backend/ERP TRANSFERS.gs.txt comme Web App Google (acces : Tout le monde).
   2) Copier l URL se terminant par /exec.
   3) Coller dans const API_URL en TETE de CE fichier (balise <script>, vers ligne 20).
   4) Repeter la MEME URL dans toutes les apps PC/*/index.html et Telephone/*/index.html.
   5) Voir docs/INSTRUCTIONS_DEPLOIEMENT.md pour la liste complete.
-  A coller apres deploiement : https://VOTRE_DEPLOIEMENT_APPS_SCRIPT_ICI/exec
+  A coller apres deploiement : https://script.google.com/macros/s/AKfycby2HTznhTGuYWheziPO3ta5QMmObQWQ6OmS_wjLUuBwn63_cE7XCo_kVqwW-qSv1-xm/exec
   Documentation : docs/INSTRUCTIONS_DEPLOIEMENT.md
 ===== HOTEL_PACK_API_DEPLOY ===== -->
